@@ -1,0 +1,10 @@
+[
+    {
+        "args": {},
+        "abstractions": [],
+        "programs": [
+            "(a (lam (a a)))",
+            "(b (lam (b b)))"
+        ]
+    }
+]

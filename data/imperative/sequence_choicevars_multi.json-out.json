@@ -1,0 +1,22 @@
+[
+    {
+        "args": {
+            "match_sequences": true
+        },
+        "abstractions": [
+            [
+                0,
+                0,
+                "(/seq a b ?0 f g h i j)",
+                "uninit_state",
+                [],
+                []
+            ]
+        ],
+        "programs": [
+            "(fn_1 (/choiceseq c d e))",
+            "(fn_1 (/choiceseq d e))",
+            "(fn_1 (/choiceseq c d))"
+        ]
+    }
+]

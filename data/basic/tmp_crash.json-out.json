@@ -1,0 +1,10 @@
+[
+    {
+        "args": {},
+        "abstractions": [],
+        "programs": [
+            "(a (lam (cons (car $0))))",
+            "(a (lam (cons (+ 1 (car $0)))))"
+        ]
+    }
+]
