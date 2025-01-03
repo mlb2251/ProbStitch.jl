@@ -14,9 +14,12 @@ function sample_normalized(weights)
     return i
 end
 
-function sample_many(xs::Vector{T}, weights::Vector{Float64}, N::Int) where T
+"""
+A faster sampler for sampling N independent samples from an unnormalized categorical distribution.
+"""
+function sample_many!(weights, out)
+    N = length(out)
     weights = weights ./ sum(weights)
-    res = Vector{T}(undef, N)
     rands = sort!(rand(N))
     W = length(weights)
 
@@ -28,34 +31,36 @@ function sample_many(xs::Vector{T}, weights::Vector{Float64}, N::Int) where T
             @inbounds cumulative_weight += weights[weights_idx]
             weights_idx += 1
         end
-        @inbounds res[j] = copy(xs[weights_idx])
+        @inbounds out[j] = weights_idx
     end
-    res
+    out
 end
-
-function resample_multinomial(xs::Vector{T}, logweights::Vector{Float64})::Vector{T} where T
+function resample_multinomial!(logweights::Vector{Float64}, out::Vector{Int})
+    @assert length(out) == length(logweights)
     total = logsumexp(logweights)
-    total == -Inf && return [copy(x) for x in xs]
+    total == -Inf && return collect(1:length(out))
     weights = exp.(logweights .- total)
-    return sample_many(xs, weights, length(xs))
+    return sample_many!(weights, out)
 end
 
-function resample_residual(xs::Vector{T}, logweights::Vector{Float64})::Vector{T} where T
+function resample_residual!(logweights::Vector{Float64}, out::Vector{Int})
+    @assert length(out) == length(logweights)
     N = length(logweights)
     total = logsumexp(logweights)
-    total == -Inf && return [copy(x) for x in xs]
+    total == -Inf && return collect(1:N)
     Nweights = exp.(logweights .- total) .* N
     whole_weights = floor.(Int, Nweights)
     residual_weights = Nweights .- whole_weights
     residual_weights ./= sum(residual_weights)
-    res = Vector{T}()
+    res_idx = 1
     for (i, count) in enumerate(whole_weights)
         for _ in 1:count
-            @inbounds push!(res, copy(xs[i]))
+            @inbounds out[res_idx] = i
+            res_idx += 1
         end
     end
-    append!(res, sample_many(xs, residual_weights, N - length(res)))
-    res
+    sample_many!(residual_weights, view(out, res_idx:N))
+    out
 end
 
 

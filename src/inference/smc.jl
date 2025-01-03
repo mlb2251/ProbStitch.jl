@@ -31,19 +31,19 @@ mutable struct SMCStats
     expansions::Int
     time_smc::Float64
     time_rewrite::Float64
-    matches_cache::HitRate
+    abstraction_cache::HitRate
 end
 SMCStats() = SMCStats(0, 0, 0, 0., 0., HitRate())
 
 mutable struct Shared
-    matches_cache::Dict{PExpr, Abstraction}
+    abstraction_cache::Dict{PExpr, Abstraction}
     stats::SMCStats
 end
 Shared() = Shared(Dict{PExpr, Abstraction}(), SMCStats())
 
-(Base.:+)(a::SMCStats, b::SMCStats) = SMCStats(a.steps + b.steps, a.proposals + b.proposals, a.expansions + b.expansions, a.time_smc + b.time_smc, a.time_rewrite + b.time_rewrite, a.matches_cache + b.matches_cache)
+(Base.:+)(a::SMCStats, b::SMCStats) = SMCStats(a.steps + b.steps, a.proposals + b.proposals, a.expansions + b.expansions, a.time_smc + b.time_smc, a.time_rewrite + b.time_rewrite, a.abstraction_cache + b.abstraction_cache)
 
-Base.show(io::IO, stats::SMCStats) = print(io, "SMCStats(steps=$(stats.steps), proposals=$(stats.proposals), expansions=$(stats.expansions), time_smc=$(round(stats.time_smc, sigdigits=2)), time_rewrite=$(round(stats.time_rewrite, sigdigits=2)), matches_cache=$(stats.matches_cache))")
+Base.show(io::IO, stats::SMCStats) = print(io, "SMCStats(steps=$(stats.steps), proposals=$(stats.proposals), expansions=$(stats.expansions), time_smc=$(round(stats.time_smc, sigdigits=2)), time_rewrite=$(round(stats.time_rewrite, sigdigits=2)), abstraction_cache=$(stats.abstraction_cache))")
 
 struct SMCResult
     abstraction::Abstraction
@@ -168,8 +168,8 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
                 smc.logweights[i] = particle.done ? -Inf : log(max(1., particle.abs.utility))
             end
         end
-
-        smc.particles = resample_residual(smc.particles, smc.logweights)
+        resample_residual!(smc.logweights, smc.ancestors)
+        smc.particles .= [copy(smc.particles[i]) for i in smc.ancestors]
         # particles = resample_multinomial(particles, weights)
     end
 

@@ -109,3 +109,5 @@ end
 Base.show(io::IO, e::Prim) = print(io, e.name)
 Base.show(io::IO, e::MetaVar) = printstyled(io, "#", metavar_names[e.name]; color=(e.name%6)+1, bold=true)
 
+
+# function to_json(e::PExpr, )

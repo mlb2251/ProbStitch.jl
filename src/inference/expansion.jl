@@ -68,7 +68,7 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
     end
 
     hit = true
-    new_abs = get!(shared.matches_cache, abs.expr) do
+    new_abs = get!(shared.abstraction_cache, abs.expr) do
         hit = false
 
         new_abs = copy(abs)
@@ -96,7 +96,7 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
         new_abs
     end
 
-    hit!(shared.stats.matches_cache, hit)
+    hit!(shared.stats.abstraction_cache, hit)
 
     # copy it if it's being used as a key so we don't mess with the key copy
     if !hit
@@ -131,7 +131,7 @@ function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode,
     end
 
     hit = true
-    new_abs = get!(shared.matches_cache, abs.expr) do
+    new_abs = get!(shared.abstraction_cache, abs.expr) do
         hit = false
 
         new_abs = copy(abs)
@@ -152,7 +152,7 @@ function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode,
         new_abs
     end
 
-    hit!(shared.stats.matches_cache, hit)
+    hit!(shared.stats.abstraction_cache, hit)
 
     # copy it since now it might be being used as a key
     if !hit
