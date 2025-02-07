@@ -44,16 +44,17 @@ mutable struct Abstraction
     metavar_paths::Vector{MetaVarPath}
     expr::PExpr
     size::Int
-    utility::Float64
+    logposterior::Float64
     name::Symbol
     corpus::Corpus
+    id::Int
 end
 
 # shallow copy matches, deep copy metavar_paths
-Base.copy(a::Abstraction) = Abstraction(copy(a.matches), MetaVarPath[copy(p) for p in a.metavar_paths], copy(a.expr), a.size, a.utility, a.name, a.corpus)
+Base.copy(a::Abstraction) = Abstraction(copy(a.matches), MetaVarPath[copy(p) for p in a.metavar_paths], copy(a.expr), a.size, a.logposterior, a.name, a.corpus, a.id)
 
 function Base.show(io::IO, a::Abstraction)
-    print(io, "[matches=", length(a.matches), " arity=", arity(a), " utility=", a.utility, ": ")
+    print(io, "[matches=", length(a.matches), " arity=", arity(a), " logposterior=", a.logposterior, ": ")
     # if length(a.metavar_paths) > 0
     #     print(io, "(λ")
     #     for (i, _) in enumerate(a.metavar_paths)
@@ -77,5 +78,5 @@ multiuses(abs::Abstraction) = sum(length(p.paths) - 1 for p in abs.metavar_paths
 
 function identity_abstraction(corpus, name::Symbol)
     # return Abstraction([Match(node, CorpusNode[node]) for node in nodes], Path[Int[]], MetaVar(1, metavar_names[1]), 2, 0, 0.)
-    return Abstraction(copy(corpus.bottom_up_order), MetaVarPath[MetaVarPath(Path[Path()])], MetaVar(1), 0, 0., name, corpus)
+    return Abstraction(copy(corpus.bottom_up_order), MetaVarPath[MetaVarPath(Path[Path()])], MetaVar(1), 0, 0., name, corpus, 0)
 end

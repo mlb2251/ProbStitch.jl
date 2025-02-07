@@ -5,8 +5,6 @@ const ABS_FIELDNAMES = ["expr", "num_matches", "size", "utility"]
 
 mutable struct JSONLogger
     state::SMC
-    config::Config
-    shared::Shared
     history::Vector{Any}
     idx_of_abs::Dict{PExpr, Int}
     logged_abstractions::Vector{Any}
@@ -21,8 +19,8 @@ function JSON.lower(logger::JSONLogger)
 end
 
 
-function JSONLogger(smc::SMC, config::Config, shared::Shared)
-    return JSONLogger(smc, config, shared, [], Dict{PExpr, Int}(), [])
+function JSONLogger(smc::SMC)
+    return JSONLogger(smc, [], Dict{PExpr, Int}(), [])
 end
 
 function log!(logger::JSONLogger, step::Int)

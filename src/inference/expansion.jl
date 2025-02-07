@@ -1,8 +1,4 @@
-function sample_expansion(shared::Shared, abs::Abstraction)::Union{Abstraction, Nothing}
-    # if all paths are multiuses, we can't expand
-    # all(p -> has_multiuses(p), abs.metavar_paths) && return nothing
-    isempty(abs.metavar_paths) && return nothing
-
+function sample_expansion(smc::SMC, abs::Abstraction)::Abstraction
     # pick a random match location to use as the basis for expansion
     match = abs.matches[rand(1:end)]
 
@@ -19,7 +15,7 @@ function sample_expansion(shared::Shared, abs::Abstraction)::Union{Abstraction, 
     path = abs.metavar_paths[i]
     child_i = getchild(match, path)
 
-    shared.stats.expansions += 1
+    smc.stats.expansions += 1
 
     P_MULTIUSE = 0.5
 
@@ -33,14 +29,14 @@ function sample_expansion(shared::Shared, abs::Abstraction)::Union{Abstraction, 
         if length(multiuse_candidates) > 0
             # pick a random one
             j = multiuse_candidates[rand(1:end)]
-            return multiuse_expansion(shared, abs, match, i, path, child_i, j)
+            return multiuse_expansion(smc, abs, match, i, path, child_i, j)
         end
     end
 
-    return syntactic_expansion(shared, abs, match, i, path, child_i)
+    return syntactic_expansion(smc, abs, match, i, path, child_i)
 end
 
-function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode, i::Int, path_i::MetaVarPath, child_i::CorpusNode)::Abstraction
+function syntactic_expansion(smc::SMC, abs::Abstraction, match::CorpusNode, i::Int, path_i::MetaVarPath, child_i::CorpusNode)::Abstraction
 
     # grow the abstraction
     prod = child_i.production
@@ -68,11 +64,11 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
     end
 
     hit = true
-    new_abs = get!(shared.abstraction_cache, abs.expr) do
+    new_abs = get!(smc.abs_of_expr, abs.expr) do
         hit = false
 
         new_abs = copy(abs)
-        new_abs.utility = NaN
+        new_abs.logposterior = NaN
         
         # subset to the matches that have the same production as the child we are expanding based on
         filter!(new_abs.matches) do node
@@ -93,10 +89,13 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
             end
         end
         new_abs.size += length(path_i.paths)
+
+        push!(smc.abs_of_id, new_abs)
+        new_abs.id = length(smc.abs_of_expr)
         new_abs
     end
 
-    hit!(shared.stats.abstraction_cache, hit)
+    hit!(smc.stats.abstraction_cache, hit)
 
     # copy it if it's being used as a key so we don't mess with the key copy
     if !hit
@@ -118,7 +117,7 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
     return new_abs
 end
 
-function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode, i::Int, path_i::MetaVarPath, child_i::CorpusNode, j::Int)
+function multiuse_expansion(smc::SMC, abs::Abstraction, match::CorpusNode, i::Int, path_i::MetaVarPath, child_i::CorpusNode, j::Int)::Abstraction
     lo, hi = i < j ? (i,j) : (j,i)
 
     # set hi to be the same as lo within the expression
@@ -131,11 +130,11 @@ function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode,
     end
 
     hit = true
-    new_abs = get!(shared.abstraction_cache, abs.expr) do
+    new_abs = get!(smc.abs_of_expr, abs.expr) do
         hit = false
 
         new_abs = copy(abs)
-        new_abs.utility = NaN
+        new_abs.logposterior = NaN
 
         path_lo = new_abs.metavar_paths[lo]
         path_hi = new_abs.metavar_paths[hi]    
@@ -149,10 +148,13 @@ function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode,
         filter!(new_abs.matches) do node
             getchild(node, path_lo).expr_id == getchild(node, path_hi).expr_id
         end
+
+        push!(smc.abs_of_id, new_abs)
+        new_abs.id = length(smc.abs_of_expr)
         new_abs
     end
 
-    hit!(shared.stats.abstraction_cache, hit)
+    hit!(smc.stats.abstraction_cache, hit)
 
     # copy it since now it might be being used as a key
     if !hit

@@ -20,8 +20,8 @@ end
 """
 A faster sampler for sampling N independent samples from an unnormalized categorical distribution.
 """
-function sample_many!(weights, out)
-    N = length(out)
+function sample_many!(weights, out, N)
+    @assert length(out) <= length(weights)
     weights = weights ./ sum(weights)
     rands = sort!(rand(N))
     W = length(weights)
@@ -34,35 +34,31 @@ function sample_many!(weights, out)
             @inbounds cumulative_weight += weights[weights_idx]
             weights_idx += 1
         end
-        @inbounds out[j] = weights_idx
+        @inbounds out[weights_idx] += 1
     end
     out
 end
-function resample_multinomial!(logweights::Vector{Float64}, out::Vector{Int})
-    @assert length(out) == length(logweights)
-    total = logsumexp(logweights)
-    total == -Inf && return collect(1:length(out))
-    weights = exp.(logweights .- total)
-    return sample_many!(weights, out)
-end
 
-function resample_residual!(logweights::Vector{Float64}, out::Vector{Int})
-    @assert length(out) == length(logweights)
-    N = length(logweights)
+# function resample_multinomial!(logweights::Vector{Float64}, out::Vector{Int})
+#     @assert length(out) == length(logweights)
+#     total = logsumexp(logweights)
+#     total == -Inf && return collect(1:length(out))
+#     weights = exp.(logweights .- total)
+#     return sample_many!(weights, out)
+# end
+
+function resample_residual!(logweights::Vector{Float64}, out::Vector{Int}, N::Int)
+    @assert length(out) <= length(logweights)
     total = logsumexp(logweights)
     total == -Inf && return collect(1:N)
     Nweights = exp.(logweights .- total) .* N
     whole_weights = floor.(Int, Nweights)
-    residual_weights = Nweights .- whole_weights
-    residual_weights ./= sum(residual_weights)
-    res_idx = 1
-    for (i, count) in enumerate(whole_weights)
-        for _ in 1:count
-            @inbounds out[res_idx] = i
-            res_idx += 1
-        end
+    for i in eachindex(whole_weights)
+        @inbounds out[i] = whole_weights[i]
     end
-    sample_many!(residual_weights, view(out, res_idx:N))
+    remaining = N - sum(whole_weights)
+    residual_weights = Nweights .- whole_weights
+    sample_many!(residual_weights, out, remaining)
     out
 end
 

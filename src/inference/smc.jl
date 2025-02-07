@@ -1,18 +1,5 @@
 export smc
 
-
-mutable struct Particle
-    abs::Abstraction
-    done::Bool
-end
-Base.copy(p::Particle) = Particle(p.abs, p.done)
-
-mutable struct SMC
-    particles::Vector{Particle}
-    logweights::Vector{Float64}
-    ancestors::Vector{Int}
-end
-
 Base.@kwdef struct Config
     num_particles::Int=3000
     seed::Union{Int,Nothing}=nothing
@@ -35,11 +22,86 @@ mutable struct SMCStats
 end
 SMCStats() = SMCStats(0, 0, 0, 0., 0., HitRate())
 
-mutable struct Shared
-    abstraction_cache::Dict{PExpr, Abstraction}
-    stats::SMCStats
+# mutable struct Shared
+#     abstraction_cache::Dict{PExpr, Abstraction}
+#     stats::SMCStats
+# end
+# Shared() = Shared(Dict{PExpr, Abstraction}(), SMCStats())
+
+
+mutable struct SMCFrame
+    particles::Vector{Abstraction}
+    logtotals_before_resampling::Vector{Float64}
+    logtotals_after_resampling::Vector{Float64}
+    counts_before_resampling::Vector{Int}
+    counts_after_resampling::Vector{Int}
+    ancestors::Vector{Int}
 end
-Shared() = Shared(Dict{PExpr, Abstraction}(), SMCStats())
+
+function SMCFrame(config::Config)
+    SMCFrame(empty!(Vector{Abstraction}(undef, config.num_particles)),
+             empty!(Vector{Float64}(undef, config.num_particles)),
+             empty!(Vector{Float64}(undef, config.num_particles)),
+             empty!(Vector{Int}(undef, config.num_particles)),
+             empty!(Vector{Int}(undef, config.num_particles)),
+             empty!(Vector{Int}(undef, config.num_particles)))
+end
+
+function dead_particle(abs::Abstraction)
+    isempty(abs.metavar_paths   )
+end
+
+function dead_frame(frame::SMCFrame)
+    all(dead_particle, frame.particles)
+end
+
+function push_particle!(frame::SMCFrame, abs::Abstraction, logweight::Float64, ancestor::Int)
+    push!(frame.particles, abs)
+    push!(frame.logtotals_before_resampling, logweight)
+    push!(frame.logtotals_after_resampling, logweight)
+    push!(frame.counts_before_resampling, 1)
+    push!(frame.counts_after_resampling, 0)
+    push!(frame.ancestors, ancestor)
+    frame
+end
+
+function add_to_particle!(frame::SMCFrame, idx::Int, logweight::Float64)
+    frame.logtotals_before_resampling[idx] = logaddexp(frame.logtotals_before_resampling[idx], logweight)
+    frame.counts_before_resampling[idx] += 1
+    frame
+end
+
+
+
+
+
+mutable struct SMC
+    frames::Vector{SMCFrame}
+    config::Config
+    stats::SMCStats
+    abs_of_expr::Dict{PExpr, Abstraction}
+    abs_of_id::Vector{Abstraction}
+    step::Int
+end
+
+function SMC(config::Config)
+    frames = SMCFrame[SMCFrame(config) for _ in 1:config.max_steps + 1]
+    SMC(frames, config, SMCStats(), Dict{PExpr, Abstraction}(), Abstraction[], -1)
+end
+
+function get_frame(smc::SMC, step::Int)
+    smc.frames[step+1]
+end
+
+function get_next_frame(smc::SMC)
+    smc.step += 1
+    frame = get_frame(smc, smc.step)
+    frame
+end
+
+
+
+
 
 (Base.:+)(a::SMCStats, b::SMCStats) = SMCStats(a.steps + b.steps, a.proposals + b.proposals, a.expansions + b.expansions, a.time_smc + b.time_smc, a.time_rewrite + b.time_rewrite, a.abstraction_cache + b.abstraction_cache)
 
@@ -130,76 +192,101 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
     tstart = time()
     @assert !has_prim(corpus, name) "Primitive $(name) already exists in corpus"
 
+    smc = SMC(config)
+    next_frame = get_next_frame(smc)
+
+    # start with a single particle
     init_abs = identity_abstraction(corpus, name)
-    init_particle = Particle(init_abs, false)
-    init_particles = Particle[copy(init_particle) for _ in 1:config.num_particles]
-    init_logweights = fill(0., config.num_particles)
-    init_ancestors = 1:config.num_particles
-    smc = SMC(init_particles, init_logweights, init_ancestors)
+    push_particle!(next_frame, init_abs, 0., 0)
+    next_frame.counts_before_resampling[1] = config.num_particles
+    next_frame.counts_after_resampling[1] = config.num_particles
 
     best_utility = 0.
-    best_particle = init_particle
-    shared = Shared()
+    best_particle = init_abs
 
     !isnothing(config.seed) && Random.seed!(config.seed)
     # println("seed: ", Random.seed!())
 
-    logger = JSONLogger(smc, config, shared)
+    idx_of_abs_id = Dict{Int, Int}()
+
+    resample_ancestors = zeros(Int, config.num_particles)
+
+    logger = JSONLogger(smc)
 
     while true
+        # log!(logger)
 
-        log!(logger, shared.stats.steps)
+        smc.step + 1 > config.max_steps && break
+        dead_frame(next_frame) && break
 
-        shared.stats.steps >= config.max_steps && break
-        all(p -> p.done, smc.particles) && break
+        prev_frame = next_frame
+        next_frame = get_next_frame(smc)
 
+        # smc.stats.steps += 1
 
-        shared.stats.steps += 1
+        # SMC STEP
+        for i in eachindex(prev_frame.particles)
+            @inbounds abs = prev_frame.particles[i]
+            dead_particle(abs) && continue
+            @inbounds count = prev_frame.counts_after_resampling[i]
 
+            # we need to empty this on a per-ancestor basis so that two particles
+            # with different ancestors are not counted as the same particle
+            empty!(idx_of_abs_id)
 
-        for (i, particle) in enumerate(smc.particles)
-            particle.done && continue
-            abs = sample_expansion(shared, particle.abs)
-            
-            particle.done = isnothing(abs)
-            if !isnothing(abs)
-                if isnan(abs.utility)
-                    abs.utility = config.utility_fn(abs)
-                    @assert !isnan(abs.utility)
+            for k in 1:count
+
+                new_abs = sample_expansion(smc, abs)
+
+                # check if posterior is already set via cache
+                if isnan(new_abs.logposterior)
+                    new_abs.logposterior = log(max(1., config.utility_fn(new_abs))) / config.temperature
                 end
-                particle.abs = abs
-            end
 
-            if particle.abs.utility > best_utility
-                best_utility = particle.abs.utility
-                best_particle = copy(particle)
-                config.verbose_best && println("new best: ", particle.abs)
+                logweight = dead_particle(new_abs) ? -Inf : new_abs.logposterior
+
+                if haskey(idx_of_abs_id, new_abs.id)
+                    # right now logweight will always be the same since we're not allowing
+                    # one particle to come from different ancestors
+                    idx = idx_of_abs_id[new_abs.id]
+                    add_to_particle!(next_frame, idx, logweight)
+                else 
+                    push_particle!(next_frame, new_abs, logweight, i)
+                    idx_of_abs_id[new_abs.id] = length(next_frame.particles)
+                end
+
+                if new_abs.logposterior > best_utility
+                    best_utility = new_abs.logposterior
+                    best_particle = new_abs
+                    config.verbose_best && println("new best: ", new_abs)
+                end
+
             end
         end
 
-        all(p -> p.done, smc.particles) && break
+        dead_frame(next_frame) && break
 
-        # resample
-        for i in eachindex(smc.particles)
-            particle = smc.particles[i]
-            if config.logprob_mode
-                smc.logweights[i] = particle.done ? -Inf : particle.abs.utility / config.temperature
-            else
-                smc.logweights[i] = particle.done ? -Inf : log(max(1., particle.abs.utility)) / config.temperature
-            end
+
+        # RESAMPLE
+        resample_residual!(next_frame.logtotals_before_resampling, next_frame.counts_after_resampling, config.num_particles)
+        @assert sum(next_frame.counts_after_resampling) == config.num_particles
+
+        # set logtotals_after_resampling to log(average weight times counts)
+        log_avg_weight = logsumexp(next_frame.logtotals_before_resampling) .- log(config.num_particles)
+        for i in eachindex(next_frame.particles)
+            @inbounds next_frame.logtotals_after_resampling[i] = log_avg_weight + log(next_frame.counts_after_resampling[i])
         end
-        resample_residual!(smc.logweights, smc.ancestors)
-        smc.particles .= [copy(smc.particles[i]) for i in smc.ancestors]
-        # particles = resample_multinomial(particles, weights)
+
+
     end
 
-    shared.stats.time_smc = time() - tstart
+    smc.stats.time_smc = time() - tstart
 
     tstart = time()
-    rewritten = rewrite(corpus, best_particle.abs)
-    shared.stats.time_rewrite = time() - tstart
+    rewritten = rewrite(corpus, best_particle)
+    smc.stats.time_rewrite = time() - tstart
 
-    return SMCResult(best_particle.abs, corpus, rewritten, shared.stats, logger)
+    return SMCResult(best_particle, corpus, rewritten, smc.stats, logger)
 end
 
 
