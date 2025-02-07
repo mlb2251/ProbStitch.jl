@@ -20,7 +20,7 @@ Base.@kwdef struct Config
     prefix::String="fn_"
     N::Int=1
     max_steps::Int=50
-    temperature::Float64=.5
+    temperature::Float64=1.0
     utility_fn::Function=utility_by_rewrite
     logprob_mode::Bool=false
 end
@@ -50,19 +50,23 @@ struct SMCResult
     before::Corpus
     rewritten::Corpus
     stats::SMCStats
+    logger
 end
 
+
 struct StitchResult
-    original::Corpus
+    before::Corpus
+    rewritten::Corpus
     steps::Vector{SMCResult}
     stats::SMCStats
 end
 
+
 function Base.show(io::IO, result::StitchResult)
-    original_size = size(result.original)
-    rewritten_size = size(result.steps[end].rewritten)
-    ratio = original_size / rewritten_size
-    println(io, "StitchResult(ratio=$(round(ratio, digits=2))x, original_size=$original_size, rewritten_size=$rewritten_size)")
+    before_size = size(result.before)
+    rewritten_size = size(result.rewritten)
+    ratio = before_size / rewritten_size
+    println(io, "StitchResult(ratio=$(round(ratio, digits=2))x, before_size=$before_size, rewritten_size=$rewritten_size)")
     for (i, step) in enumerate(result.steps)
         println(io, "  ", step)
         # i < length(result.steps) && println(io)
@@ -100,9 +104,9 @@ end
 
 
 
-function compress(corpus::Corpus; kwargs...)
+function compress(corpus::Corpus; record_json::Bool=false, kwargs...)
     config = Config(;kwargs...)
-    original = corpus
+    before = corpus
     results = SMCResult[]
     for i in 1:config.N
         name = Symbol(config.prefix, i)
@@ -110,7 +114,15 @@ function compress(corpus::Corpus; kwargs...)
         push!(results, result)
         corpus = result.rewritten
     end
-    return StitchResult(original, results, sum(result.stats for result in results))
+    rewritten = isempty(results) ? before : results[end].rewritten
+    res = StitchResult(before, rewritten, results, sum(result.stats for result in results))
+
+    if record_json
+        dir = timestamp_dir()
+        write_out(res, dir, "result.json")
+    end
+
+    return res
 end
 
 function smc(corpus::Corpus, config::Config, name::Symbol)
@@ -132,10 +144,18 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
     !isnothing(config.seed) && Random.seed!(config.seed)
     # println("seed: ", Random.seed!())
 
-    while any(p -> !p.done, smc.particles)
+    logger = JSONLogger(smc, config, shared)
+
+    while true
+
+        log!(logger, shared.stats.steps)
+
+        shared.stats.steps >= config.max_steps && break
+        all(p -> p.done, smc.particles) && break
+
+
         shared.stats.steps += 1
 
-        shared.stats.steps > config.max_steps && break
 
         for (i, particle) in enumerate(smc.particles)
             particle.done && continue
@@ -165,7 +185,7 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
             if config.logprob_mode
                 smc.logweights[i] = particle.done ? -Inf : particle.abs.utility / config.temperature
             else
-                smc.logweights[i] = particle.done ? -Inf : log(max(1., particle.abs.utility))
+                smc.logweights[i] = particle.done ? -Inf : log(max(1., particle.abs.utility)) / config.temperature
             end
         end
         resample_residual!(smc.logweights, smc.ancestors)
@@ -179,7 +199,7 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
     rewritten = rewrite(corpus, best_particle.abs)
     shared.stats.time_rewrite = time() - tstart
 
-    return SMCResult(best_particle.abs, corpus, rewritten, shared.stats)
+    return SMCResult(best_particle.abs, corpus, rewritten, shared.stats, logger)
 end
 
 

@@ -1,3 +1,6 @@
+using Dates
+
+
 """
 adapted from StatsBase.sample();
 this verison requires normalized weights (uncomment the first line sum to work with unnormalized weights)
@@ -66,18 +69,18 @@ end
 
 const Id = Int
 
-struct IdSet{T}
+struct IdxSet{T}
     id_of_entry::Dict{T, Id}
     entry_of_id::Vector{T}
 end
-IdSet{T}() where T = IdSet(Dict{T, Id}(), Vector{T}())
-function Base.getindex(idset::IdSet{T}, entry::T) where T
+IdxSet{T}() where T = IdxSet(Dict{T, Id}(), Vector{T}())
+function Base.getindex(idset::IdxSet{T}, entry::T)::Id where T
     get!(idset.id_of_entry, entry) do
         push!(idset.entry_of_id, entry)
         length(idset.entry_of_id)
     end
 end
-function Base.getindex(idset::IdSet{T}, id::Id) where T
+function Base.getindex(idset::IdxSet{T}, id::Id)::T where T
     idset.entry_of_id[id]
 end
 
@@ -111,3 +114,41 @@ function logaddexp(x::Float64, y::Float64)::Float64
 end
 
 logsumexp(x::Vector{Float64}) = reduce(logaddexp, x; init = -Inf)
+
+round3(x) = round(x; sigdigits = 3)
+round2(x) = round(x; sigdigits = 2)
+round1(x) = round(x; sigdigits = 1)
+round0(x) = round(x; sigdigits = 0)
+
+function timestamp_dir(; base = "out/results")
+    dir = nothing
+    while isnothing(dir) || isdir(dir)
+        date = Dates.format(Dates.now(), "yyyy-mm-dd")
+        time = Dates.format(Dates.now(), "HH-MM-SS")
+        dir = joinpath(base, date, time)
+    end
+    mkpath(dir)
+    dir
+end
+
+function write_out(result, dir, name; verbose::Bool=true)
+    @assert endswith(name, ".json")
+    mkpath(dir)
+    print("writing...")
+    flush(stdout)
+
+    path = joinpath(dir, name)
+    open(path, "w") do f
+        JSON.print(f, result)
+    end
+    verbose && println("wrote $path [$(round(Int,filesize(path)/1000)) KB]")
+    path
+end
+
+
+
+
+
+
+
+

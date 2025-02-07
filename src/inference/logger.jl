@@ -1,51 +1,124 @@
+
+
+const PARTICLE_FIELDNAMES = ["abs_id", "logweight"]
+const ABS_FIELDNAMES = ["expr", "num_matches", "size", "utility"]
+
 mutable struct JSONLogger
     state::SMC
     config::Config
+    shared::Shared
     history::Vector{Any}
-    log_proposal_ratios::Vector{Float64}
-    loglikelihood_ratios::Vector{Float64}
-    logprior_ratios::Vector{Float64}
-    weight_incrs::Vector{Float64}
-    highlight_paths::Vector{Path}
-    expr_ids::IdSet{String}
+    idx_of_abs::Dict{PExpr, Int}
+    logged_abstractions::Vector{Any}
 end
 
-function JSONLogger(smc::SMC, config::SMCConfig)
-    JSONLogger(smc, config, [], fill(0.0, config.num_particles), fill(0.0, config.num_particles), fill(0.0, config.num_particles), fill(0.0, config.num_particles), fill(Path[], config.num_particles), IdSet{String}())
+function JSON.lower(logger::JSONLogger)
+    return Dict(
+        :config => logger.config,
+        :history => logger.history,
+        :logged_abstractions => logger.logged_abstractions,
+    )
 end
 
-function log_init!(logger)
-    push!(logger.history, json_state(logger, 0, :init))
+
+function JSONLogger(smc::SMC, config::Config, shared::Shared)
+    return JSONLogger(smc, config, shared, [], Dict{PExpr, Int}(), [])
 end
 
-function log_smc_step!(logger, step)
-    push!(logger.history, json_state(logger, step, :smc_step))
-end
-
-function log_resample!(logger, step, ancestors)
-    push!(logger.history, json_state(logger, step, :resample, ancestors=ancestors))
-end
-
-function json_state(logger, step, mode; ancestors=nothing)
+function log!(logger::JSONLogger, step::Int)
     state = logger.state
-    Dict(
+    history_frame = Dict(
         :step => step,
-        :mode => mode,
-        :ancestors => ancestors,
-        :fieldnames => ["expr", "likelihood", "prior", "posterior", "logweight", "weight_incr", "log_proposal_ratio", "loglikelihood_ratio", "logprior_ratio"],
+        :ancestors => copy(state.ancestors),
         :particles => [
-            [
-                logger.expr_ids[mode == :init ? "<<<>>>$(string(state.particles[i].expr.expr.child))" : highlight_subexpression(state.particles[i].expr.expr.child, logger.highlight_paths[i], "<<<", ">>>")],
-                round3(exp(state.particles[i].loglikelihood)),
-                round3(exp(state.particles[i].logprior)),
-                round3(exp(state.particles[i].logposterior)),
-                round3(state.logweights[i]),
-                mode == :resample ? nothing : round3(logger.weight_incrs[i]),
-                mode == :resample ? nothing : round3(logger.log_proposal_ratios[i]),
-                mode == :resample ? nothing : round3(logger.loglikelihood_ratios[i]),
-                mode == :resample ? nothing : round3(logger.logprior_ratios[i]),
+            Any[
+                log!(logger, state.particles[i].abs), # abs_id
+                round3(state.logweights[i]), # logweight
             ]
             for i in eachindex(state.particles)
         ]
     )
+    push!(logger.history, history_frame)
+    logger
 end
+
+function log!(logger::JSONLogger, abs::Abstraction)::Int
+    get!(logger.idx_of_abs, abs.expr) do
+        logged_abs = [
+            log!(logger, abs.expr), # expr
+            length(abs.matches), # num_matches
+            abs.size, # size
+            abs.utility # utility
+        ]
+        push!(logger.logged_abstractions, logged_abs)
+        length(logger.logged_abstractions)
+    end
+end
+
+log!(logger::JSONLogger, expr::PExpr) = string(expr)
+
+# function log!(logger::JSONLogger, expr::Prim)
+#     return string(expr) # prim
+# end
+
+# function log!(logger::JSONLogger, expr::MetaVar)
+#     return string(expr) # metavar
+# end
+
+# function log!(logger::JSONLogger, expr::App)
+#     res = []
+#     push!(res, log!(logger, expr.f))
+#     for arg in expr.args
+#         push!(res, log!(logger, arg))
+#     end
+#     res
+# end
+
+function JSON.lower(config::Config)
+    res = Dict()
+    for field in fieldnames(Config)
+        field in [:utility_fn] && continue
+        res[field] = getfield(config, field)
+    end
+    res
+end
+
+
+function JSON.lower(result::SMCResult)
+    return Dict(
+        :abstraction => log!(result.logger, result.abstraction),
+        :before => result.before,
+        :rewritten => result.rewritten,
+        :stats => result.stats,
+        :logger => result.logger
+    )
+end
+
+function JSON.lower(result::StitchResult)
+    return Dict(
+        :before => result.before,
+        :rewritten => result.rewritten,
+        :steps => result.steps,
+        :stats => result.stats
+    )
+end
+
+function JSON.lower(e::PExpr)
+    return string(e)
+end
+
+function JSON.lower(corpus::Corpus)
+    return Dict(
+        :programs => corpus.programs
+    )
+end
+
+function JSON.lower(program::Program)
+    return string(program.expr)
+end
+
+function JSON.lower(n::CorpusNode)
+    return string(n.expr)
+end
+
+

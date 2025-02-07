@@ -15,5 +15,6 @@ include("inference/smc.jl")
 include("inference/expansion.jl")
 include("utility.jl")
 include("rewriting.jl")
+include("inference/logger.jl")
 
 end

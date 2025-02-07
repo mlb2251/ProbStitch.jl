@@ -17,8 +17,8 @@ struct ProgramInfo
     id::Int
 end
 
-const production_idset = IdSet{Production}()
-const expr_idset = IdSet{PExpr}()
+const production_idset = IdxSet{Production}()
+const expr_idset = IdxSet{PExpr}()
 
 mutable struct RewriteData
     is_match::Bool

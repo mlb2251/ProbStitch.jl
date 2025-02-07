@@ -1,9 +1,6 @@
 
 const Path = Vector{Int}
 
-# struct PExpr
-#     type::Symbol
-#     children::Vector{PExpr}
 abstract type PExpr end
 
 struct App <: PExpr

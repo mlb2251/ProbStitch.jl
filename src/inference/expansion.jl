@@ -103,7 +103,7 @@ function syntactic_expansion(shared::Shared, abs::Abstraction, match::CorpusNode
         abs.expr = copy(abs.expr)
     end
 
-    # undo the change to the original expression
+    # undo the change to the before expression
     for path in path_i.paths
         abs.expr = setchild!(abs.expr, path, MetaVar(i))
     end
@@ -159,7 +159,7 @@ function multiuse_expansion(shared::Shared, abs::Abstraction, match::CorpusNode,
         abs.expr = copy(abs.expr)
     end
 
-    # undo the changes to the original expression
+    # undo the changes to the before expression
     set_indices!(abs.expr, abs.metavar_paths[hi], hi)
     for j in hi+1:length(abs.metavar_paths)
         path = abs.metavar_paths[j]
