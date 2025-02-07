@@ -1,7 +1,7 @@
 
 
 const PARTICLE_FIELDNAMES = ["abs_id", "logweight"]
-const ABS_FIELDNAMES = ["expr", "num_matches", "size", "utility"]
+const ABS_FIELDNAMES = ["expr", "num_matches", "size", "logposterior"]
 
 mutable struct JSONLogger
     state::SMC
@@ -12,9 +12,11 @@ end
 
 function JSON.lower(logger::JSONLogger)
     return Dict(
-        :config => logger.config,
+        :config => logger.state.config,
         :history => logger.history,
         :logged_abstractions => logger.logged_abstractions,
+        :PARTICLE_FIELDNAMES => PARTICLE_FIELDNAMES,
+        :ABS_FIELDNAMES => ABS_FIELDNAMES,
     )
 end
 
@@ -22,6 +24,31 @@ end
 function JSONLogger(smc::SMC)
     return JSONLogger(smc, [], Dict{PExpr, Int}(), [])
 end
+
+function log_all!(logger::JSONLogger)
+    for i in 0:logger.state.step
+        log_frame!(logger, i)
+    end
+    logger
+end
+
+function log_frame!(logger::JSONLogger, step::Int)
+    frame = get_frame(logger.state, step)
+    history_frame = Dict(
+        :step => step,
+        :particles => [log!(logger, particle) for particle in frame.particles],
+        :logtotals_before_resampling => round3.(frame.logtotals_before_resampling),
+        :logtotals_after_resampling => round3.(frame.logtotals_after_resampling),
+        :counts_before_resampling => frame.counts_before_resampling,
+        :counts_after_resampling => frame.counts_after_resampling,
+        :ancestors => frame.ancestors,
+    )
+    push!(logger.history, history_frame)
+    logger
+end
+
+
+
 
 function log!(logger::JSONLogger, step::Int)
     state = logger.state
@@ -43,10 +70,10 @@ end
 function log!(logger::JSONLogger, abs::Abstraction)::Int
     get!(logger.idx_of_abs, abs.expr) do
         logged_abs = [
-            log!(logger, abs.expr), # expr
+            string(abs.expr), # expr
             length(abs.matches), # num_matches
             abs.size, # size
-            abs.utility # utility
+            abs.logposterior # logposterior
         ]
         push!(logger.logged_abstractions, logged_abs)
         length(logger.logged_abstractions)
@@ -96,7 +123,7 @@ function JSON.lower(result::StitchResult)
     return Dict(
         :before => result.before,
         :rewritten => result.rewritten,
-        :steps => result.steps,
+        :rounds => result.rounds,
         :stats => result.stats
     )
 end

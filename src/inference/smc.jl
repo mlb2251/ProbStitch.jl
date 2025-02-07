@@ -10,6 +10,7 @@ Base.@kwdef struct Config
     temperature::Float64=1.0
     utility_fn::Function=utility_by_rewrite
     logprob_mode::Bool=false
+    record_json::Bool=false
 end
 
 mutable struct SMCStats
@@ -45,6 +46,15 @@ function SMCFrame(config::Config)
              empty!(Vector{Int}(undef, config.num_particles)),
              empty!(Vector{Int}(undef, config.num_particles)),
              empty!(Vector{Int}(undef, config.num_particles)))
+end
+
+function sort_frame!(frame::SMCFrame)
+    perm = sortperm(frame.logtotals_after_resampling, rev=true)
+    frame.particles .= frame.particles[perm]
+    frame.logtotals_before_resampling .= frame.logtotals_before_resampling[perm]
+    frame.logtotals_after_resampling .= frame.logtotals_after_resampling[perm]
+    frame.counts_before_resampling .= frame.counts_before_resampling[perm]
+    frame.counts_after_resampling .= frame.counts_after_resampling[perm]
 end
 
 function dead_particle(abs::Abstraction)
@@ -119,7 +129,7 @@ end
 struct StitchResult
     before::Corpus
     rewritten::Corpus
-    steps::Vector{SMCResult}
+    rounds::Vector{SMCResult}
     stats::SMCStats
 end
 
@@ -129,8 +139,8 @@ function Base.show(io::IO, result::StitchResult)
     rewritten_size = size(result.rewritten)
     ratio = before_size / rewritten_size
     println(io, "StitchResult(ratio=$(round(ratio, digits=2))x, before_size=$before_size, rewritten_size=$rewritten_size)")
-    for (i, step) in enumerate(result.steps)
-        println(io, "  ", step)
+    for (i, round) in enumerate(result.rounds)
+        println(io, "  ", round)
         # i < length(result.steps) && println(io)
     end
     print(io, "  ", result.stats)
@@ -166,7 +176,7 @@ end
 
 
 
-function compress(corpus::Corpus; record_json::Bool=false, kwargs...)
+function compress(corpus::Corpus; kwargs...)
     config = Config(;kwargs...)
     before = corpus
     results = SMCResult[]
@@ -179,7 +189,7 @@ function compress(corpus::Corpus; record_json::Bool=false, kwargs...)
     rewritten = isempty(results) ? before : results[end].rewritten
     res = StitchResult(before, rewritten, results, sum(result.stats for result in results))
 
-    if record_json
+    if config.record_json
         dir = timestamp_dir()
         write_out(res, dir, "result.json")
     end
@@ -209,13 +219,8 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
 
     idx_of_abs_id = Dict{Int, Int}()
 
-    resample_ancestors = zeros(Int, config.num_particles)
-
-    logger = JSONLogger(smc)
 
     while true
-        # log!(logger)
-
         smc.step + 1 > config.max_steps && break
         dead_frame(next_frame) && break
 
@@ -277,8 +282,12 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
             @inbounds next_frame.logtotals_after_resampling[i] = log_avg_weight + log(next_frame.counts_after_resampling[i])
         end
 
-
+        # sort by logtotals_after_resampling
+        sort_frame!(next_frame)
     end
+
+    logger = JSONLogger(smc)
+    config.record_json && log_all!(logger)
 
     smc.stats.time_smc = time() - tstart
 
