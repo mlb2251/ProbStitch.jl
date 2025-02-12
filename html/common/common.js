@@ -349,7 +349,7 @@ function load_by_paths(f) {
 }
 
 function load_json(path, f) {
-    return d3.json('../' + path, { cache: "no-store" })
+    return d3.json('../../' + path, { cache: "no-store" })
         .then(f)
         .catch(e => {
             let res = {

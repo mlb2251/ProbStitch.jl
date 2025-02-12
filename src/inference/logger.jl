@@ -41,7 +41,7 @@ function log_frame!(logger::JSONLogger, step::Int)
         :logtotals_after_resampling => round3.(frame.logtotals_after_resampling),
         :counts_before_resampling => frame.counts_before_resampling,
         :counts_after_resampling => frame.counts_after_resampling,
-        :ancestors => frame.ancestors,
+        # :proposals => frame.proposals,
     )
     push!(logger.history, history_frame)
     logger

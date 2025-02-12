@@ -36,7 +36,8 @@ mutable struct SMCFrame
     logtotals_after_resampling::Vector{Float64}
     counts_before_resampling::Vector{Int}
     counts_after_resampling::Vector{Int}
-    ancestors::Vector{Int}
+    # ancestors::Vector{Int}
+    proposals::Vector{Tuple{Abstraction, Int, Float64}} # (abstraction, ancestor, logweight)
 end
 
 function SMCFrame(config::Config)
@@ -45,7 +46,7 @@ function SMCFrame(config::Config)
              empty!(Vector{Float64}(undef, config.num_particles)),
              empty!(Vector{Int}(undef, config.num_particles)),
              empty!(Vector{Int}(undef, config.num_particles)),
-             empty!(Vector{Int}(undef, config.num_particles)))
+             empty!(Vector{Tuple{Abstraction, Int, Float64}}(undef, config.num_particles)))
 end
 
 function sort_frame!(frame::SMCFrame)
@@ -65,13 +66,12 @@ function dead_frame(frame::SMCFrame)
     all(dead_particle, frame.particles)
 end
 
-function push_particle!(frame::SMCFrame, abs::Abstraction, logweight::Float64, ancestor::Int)
+function push_particle!(frame::SMCFrame, abs::Abstraction, logweight::Float64)
     push!(frame.particles, abs)
     push!(frame.logtotals_before_resampling, logweight)
     push!(frame.logtotals_after_resampling, logweight)
     push!(frame.counts_before_resampling, 1)
     push!(frame.counts_after_resampling, 0)
-    push!(frame.ancestors, ancestor)
     frame
 end
 
@@ -207,7 +207,7 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
 
     # start with a single particle
     init_abs = identity_abstraction(corpus, name)
-    push_particle!(next_frame, init_abs, 0., 0)
+    push_particle!(next_frame, init_abs, 0.)
     next_frame.counts_before_resampling[1] = config.num_particles
     next_frame.counts_after_resampling[1] = config.num_particles
 
@@ -230,10 +230,10 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
         # smc.stats.steps += 1
 
         # SMC STEP
-        for i in eachindex(prev_frame.particles)
-            @inbounds abs = prev_frame.particles[i]
+        for ancestor in eachindex(prev_frame.particles)
+            @inbounds abs = prev_frame.particles[ancestor]
             dead_particle(abs) && continue
-            @inbounds count = prev_frame.counts_after_resampling[i]
+            @inbounds count = prev_frame.counts_after_resampling[ancestor]
 
             # we need to empty this on a per-ancestor basis so that two particles
             # with different ancestors are not counted as the same particle
@@ -250,24 +250,40 @@ function smc(corpus::Corpus, config::Config, name::Symbol)
 
                 logweight = dead_particle(new_abs) ? -Inf : new_abs.logposterior
 
-                if haskey(idx_of_abs_id, new_abs.id)
-                    # right now logweight will always be the same since we're not allowing
-                    # one particle to come from different ancestors
-                    idx = idx_of_abs_id[new_abs.id]
-                    add_to_particle!(next_frame, idx, logweight)
-                else 
-                    push_particle!(next_frame, new_abs, logweight, i)
-                    idx_of_abs_id[new_abs.id] = length(next_frame.particles)
-                end
+                push!(next_frame.proposals, (new_abs, ancestor, logweight))
+
+                # if haskey(idx_of_abs_id, new_abs.id)
+                #     # right now logweight will always be the same since we're not allowing
+                #     # one particle to come from different ancestors
+                #     idx = idx_of_abs_id[new_abs.id]
+                #     add_to_particle!(next_frame, idx, logweight)
+                # else 
+                #     push_particle!(next_frame, new_abs, logweight, ancestor)
+                #     idx_of_abs_id[new_abs.id] = length(next_frame.particles)
+                # end
 
                 if new_abs.logposterior > best_utility
                     best_utility = new_abs.logposterior
                     best_particle = new_abs
                     config.verbose_best && println("new best: ", new_abs)
                 end
-
             end
         end
+
+        # sort so that proposals of the same particle with the same ancestor are adjacent
+        sort!(next_frame.proposals, by=x->(x[1].id, x[2]))
+
+        prev_abs_id = -1
+        for (abstraction, ancestor, logweight) in next_frame.proposals
+            if abstraction.id != prev_abs_id
+                push_particle!(next_frame, abstraction, logweight)
+                prev_abs_id = abstraction.id
+            else
+                # add to the current particle
+                add_to_particle!(next_frame, length(next_frame.particles), logweight)
+            end
+        end
+
 
         dead_frame(next_frame) && break
 

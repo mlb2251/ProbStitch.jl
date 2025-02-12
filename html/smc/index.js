@@ -4,23 +4,14 @@ make_controls()
 add_svg()
 reload()
 
+// Reload the SVG
 function reload() {
     clear_svg()
     resize_svg()
-    // load stub
-    load_by_path(stub => {
-        // load data
-        d3.json('../' + stub.out + "/" + stub.path)
-        .then(data => {
-            // load summary
-            d3.json('../' + stub.out + "/summary.json")
-                .then(summary => {
-                    show_data(stub, data, summary)
-            })
-        })
+    load_by_path(data => {
+        show_data(data)
     })
 }
-
 
 
 function make_controls() {
@@ -80,22 +71,13 @@ window.addEventListener("keydown", function (event) {
 })
 
 
-function show_data(stub, data, summary) {
-    window.stub = stub
+function show_data(data) {
     window.data = data
-    window.summary = summary
+    console.log(data)
 
-    let config_temps = summary.config.resample_temperature
     let T;
     if (d3.select("#temperature-input input").property("value") == "config") {
-        T = Number(config_temps.temps[0])
-        if (config_temps.temps.length > 1) {
-            console.log("Warning: multiple temperatures in config, using first")
-            // insert that warning too
-            d3.select("#controls").append("div")
-                .text("Warning: multiple temperatures in config, using first: " + e)
-                .style("color", "red")
-        }
+        T = Number(data.config.temperature)
         d3.select("#temperature-input input").property("value", T)
     } else {
         T = Number(d3.select("#temperature-input input").property("value"))
