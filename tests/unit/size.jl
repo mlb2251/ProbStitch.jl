@@ -15,5 +15,6 @@ end
 @testset "test size of s expressions" begin
     @test size(Corpus(["(a)"])) == 1
     @test size(Corpus(["(a b c (d))"])) == 4
-    # @test size(Corpus(["((a b))"])) == 2
+    @test size(Corpus(["((a b))"])) == 2
+    @test size(Corpus(["(((a b)))"])) == 2
 end
