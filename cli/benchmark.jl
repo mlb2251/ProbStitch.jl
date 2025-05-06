@@ -35,14 +35,14 @@ function benchmark(path::String, num_particles::Int)
     return repeated
 end
 
-function main()
+function main(folder, name)
     results_by_n_particles = Dict()
 	for n_particles in [10, 20, 50, 100, 200, 500]
 		println("n_particles: $n_particles")
 		results_all = []
-		for path in readdir("data/cogsci")
+		for path in readdir(folder)
 			if endswith(path, ".json") && !contains(path, "-out")
-				result = benchmark(joinpath("data/cogsci", path), n_particles)
+				result = benchmark(joinpath(folder, path), n_particles)
 				push!(results_all,
 					Dict(
 						"path" => path,
@@ -54,9 +54,10 @@ function main()
 		results_by_n_particles[n_particles] = results_all
 	end
     # write to file
-    open("analysis_out/cogsci-benchmark-results.json", "w") do io
+    open("analysis_out/$(name)-benchmark-results.json", "w") do io
         JSON.print(io, results_by_n_particles)
     end
 end
 
-main()
+main("../compression_benchmark/processed/without-apps", "without-apps")
+
