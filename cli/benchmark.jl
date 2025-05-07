@@ -59,5 +59,5 @@ function main(folder, name)
     end
 end
 
-main("../compression_benchmark/processed/without-apps", "without-apps")
+main("../compression_benchmark/processed/without-apps-no-lam", "without-apps")
 
