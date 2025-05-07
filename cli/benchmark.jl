@@ -29,6 +29,10 @@ function benchmark(path::String, num_particles::Int)
 					round.abstraction.size
 					for round in res.rounds
 				],
+				"abstractions" => [
+					string(round.abstraction.expr)
+					for round in res.rounds
+				],
 			),
 		)
 	end
